@@ -282,7 +282,9 @@ function updateMap(data) {
       pane: (id == selectedRowId) ? "selectedMarker" : "otherMarkers",
     });
 
-    marker.bindPopup(name);
+    // Leaflet renders popup content as HTML, so tidy the label with
+    // DOMPurify before showing it.
+    marker.bindPopup(DOMPurify.sanitize(String(name ?? '')));
     markers.addLayer(marker);
 
     popups[id] = marker;
