@@ -34,14 +34,6 @@ describe('flashcards', function() {
   it('shows the question and answer as plain text, not markup', async function() {
     const docId = await grist.upload('test/fixtures/docs/Calendar.grist');
     await grist.openDoc(docId);
-    // Turn off behavioral prompts so their tooltips can't intercept clicks
-    // during widget setup (mirrors the viewer test).
-    await grist.driver.executeScript(() => {
-      window.localStorage.setItem(
-        'userPrefs:u=1',
-        '{"behavioralPrompts":{"dontShowTips":true,"dismissedTips":["pageWidgetPicker"]}}'
-      );
-    });
     await grist.dismissBehavioralPrompts();
     await grist.toggleSidePanel('right', 'open');
 

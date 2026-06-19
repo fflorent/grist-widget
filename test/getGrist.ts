@@ -135,6 +135,9 @@ export class GristTestServer {
 }
 
 export class GristUtils extends GristWebDriverUtils {
+  // Have we disabled tips for this session yet?
+  private _tipsDisabled = false;
+
   public constructor(public server: GristTestServer) {
     super(driver);
   }
@@ -144,39 +147,49 @@ export class GristUtils extends GristWebDriverUtils {
   }
 
   public async wait() {
-    let ct = 0;
-    while (true) {
+    await this._waitForOk(this.url + '/status?ready=1', 'Grist');
+    await this._waitForOk(this.server.assetUrl, 'asset server');
+  }
+
+  // Turn off in-product tips so their tooltips can't cover the widget picker
+  // and swallow clicks (cf. grist-core homeUtil.disableTips). Seeds the prefs
+  // in localStorage; takes effect on the next load. The logged-in user id
+  // isn't known here, so try the likely ones.
+  public async disableTips() {
+    await this.driver.executeScript(`
+      try {
+        for (const id of [0, 1]) {  // anonymous, default user
+          const key = 'userPrefs:u=' + id;
+          const prefs = JSON.parse(window.localStorage.getItem(key) || '{}');
+          prefs.behavioralPrompts = {dontShowTips: true, dismissedTips: []};
+          window.localStorage.setItem(key, JSON.stringify(prefs));
+        }
+      } catch (e) {
+        // localStorage may be unavailable on some pages; ignore.
+      }
+    `);
+  }
+
+  // Poll a URL until it returns 200, bounded so a server that never starts
+  // fails fast instead of hanging the whole run.
+  private async _waitForOk(url: string, label: string) {
+    const intervalMs = 250;
+    const maxAttempts = 480; // ~120s
+    for (let ct = 0; ct < maxAttempts; ct++) {
       if (ct > 8) {
-        console.log("Waiting for Grist...");
+        console.log(`Waiting for ${label}...`);
       }
       try {
-        const url = this.url;
-        const resp = await fetch(url + '/status?ready=1');
+        const resp = await fetch(url);
         if (resp.status === 200) {
-          break;
+          return;
         }
       } catch (e) {
         // we expect fetch failures initially.
       }
-      await new Promise(resolve => setTimeout(resolve, 250));
-      ct++;
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
-    ct = 0;
-    while (true) {
-      if (ct > 8) {
-        console.log("Waiting for asset server...");
-      }
-      try {
-        const resp = await fetch(this.server.assetUrl);
-        if (resp.status === 200) {
-          break;
-        }
-      } catch (e) {
-        // we expect fetch failures initially.
-      }
-      await new Promise(resolve => setTimeout(resolve, 250));
-      ct++;
-    }
+    throw new Error(`Timed out waiting for ${label} to be ready at ${url}`);
   }
 
   public async upload(gristFileName: string): Promise<string> {
@@ -206,6 +219,18 @@ export class GristUtils extends GristWebDriverUtils {
 
   public async openDoc(docId: string): Promise<void> {
     await driver.get(this.url + `/doc/${docId}`);
+    if (!this._tipsDisabled) {
+      // Disable tips (so their tooltips can't cover the widget picker; see
+      // disableTips) and reload so the doc boots with them off. Reloading can
+      // raise an unsaved-changes dialog, so accept it if present -- following
+      // grist-core's reloadDoc. Once per session; localStorage persists.
+      await this.disableTips();
+      this._tipsDisabled = true;
+      await driver.navigate().refresh();
+      if (await this.isAlertShown()) {
+        await this.acceptAlert();
+      }
+    }
     await driver.findWait('.viewsection_title', 10000);
     await this.waitForServer();
   }
