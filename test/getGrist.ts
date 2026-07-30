@@ -48,6 +48,7 @@ const serverSettings = {
   gristImage: 'gristlabs/grist',
   gristPort: 9999,
   contentPort: 9998,
+  untrustedPort: 9997,
   site: 'grist-widget',
 };
 
@@ -61,12 +62,22 @@ export class GristTestServer {
 
   public async start() {
     await this.stop();
-    const {gristContainerName, gristImage, gristPort, contentPort} = serverSettings;
+    const {gristContainerName, gristImage, gristPort, contentPort, untrustedPort} = serverSettings;
     const cmd = `docker run -d --rm --name ${gristContainerName}` +
       ' --add-host=host.docker.internal:host-gateway' +
       ` -e PORT=${gristPort} -p ${gristPort}:${gristPort}` +
+      ` -e GRIST_IN_SERVICE=1` +
       ` -e GRIST_SINGLE_ORG=${serverSettings.site}` +
       ` -e GRIST_WIDGET_LIST_URL=http://host.docker.internal:${contentPort}/manifest.json` +
+      // Pin the untrusted-port server (used for bundled custom widgets) to a
+      // known port and expose it, so the host browser can load bundled widget
+      // iframes. Grist's default is to pick a random port that's only
+      // reachable inside the container.
+      ` -e GRIST_UNTRUSTED_PORT=${untrustedPort} -p ${untrustedPort}:${untrustedPort}` +
+      // Hiding the help center also turns off in-product tips, whose tooltips
+      // otherwise pop up over the widget picker and swallow our clicks. See
+      // BehavioralPromptsManager.shouldShowPopup in grist-core.
+      ` -e GRIST_HIDE_UI_ELEMENTS=helpCenter` +
       ` ${gristImage}`;
     try {
       execSync(cmd, {
@@ -137,39 +148,30 @@ export class GristUtils extends GristWebDriverUtils {
   }
 
   public async wait() {
-    let ct = 0;
-    while (true) {
+    await this._waitForOk(this.url + '/status?ready=1', 'Grist');
+    await this._waitForOk(this.server.assetUrl, 'asset server');
+  }
+
+  // Poll a URL until it returns 200, bounded so a server that never starts
+  // fails fast instead of hanging the whole run.
+  private async _waitForOk(url: string, label: string) {
+    const intervalMs = 250;
+    const maxAttempts = 480; // ~120s
+    for (let ct = 0; ct < maxAttempts; ct++) {
       if (ct > 8) {
-        console.log("Waiting for Grist...");
+        console.log(`Waiting for ${label}...`);
       }
       try {
-        const url = this.url;
-        const resp = await fetch(url + '/status');
+        const resp = await fetch(url);
         if (resp.status === 200) {
-          break;
+          return;
         }
       } catch (e) {
         // we expect fetch failures initially.
       }
-      await new Promise(resolve => setTimeout(resolve, 250));
-      ct++;
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
-    ct = 0;
-    while (true) {
-      if (ct > 8) {
-        console.log("Waiting for asset server...");
-      }
-      try {
-        const resp = await fetch(this.server.assetUrl);
-        if (resp.status === 200) {
-          break;
-        }
-      } catch (e) {
-        // we expect fetch failures initially.
-      }
-      await new Promise(resolve => setTimeout(resolve, 250));
-      ct++;
-    }
+    throw new Error(`Timed out waiting for ${label} to be ready at ${url}`);
   }
 
   public async upload(gristFileName: string): Promise<string> {

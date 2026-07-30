@@ -8,8 +8,8 @@ let selectedTableId = null;
 let selectedRowId = null;
 let selectedRecords = null;
 let mode = 'multi';
-let mapSource = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-let mapCopyright = 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012';
+let mapSource = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+let mapCopyright = '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap contributors</a>';
 // Required, Label value
 const Name = "Name";
 // Required
@@ -170,7 +170,10 @@ function scanOnNeed(mappings) {
 }
 
 function showProblem(txt) {
-  document.getElementById('map').innerHTML = '<div class="error">' + txt + '</div>';
+  const div = document.createElement('div');
+  div.className = 'error';
+  div.textContent = txt;
+  document.getElementById('map').replaceChildren(div);
 }
 
 // Little extra wrinkle to deal with showing differences.  Should be taken
@@ -282,7 +285,9 @@ function updateMap(data) {
       pane: (id == selectedRowId) ? "selectedMarker" : "otherMarkers",
     });
 
-    marker.bindPopup(name);
+    // Leaflet renders popup content as HTML, so tidy the label with
+    // DOMPurify before showing it.
+    marker.bindPopup(DOMPurify.sanitize(String(name ?? '')));
     markers.addLayer(marker);
 
     popups[id] = marker;

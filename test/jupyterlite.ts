@@ -4,7 +4,7 @@ import {getGrist} from 'test/getGrist';
 describe('jupyterlite', function () {
   this.timeout(30000);
   const grist = getGrist();
-  grist.bigScreen();
+  grist.bigScreen('big');
 
   it('can create a basic notebook', async function () {
     // Open fixture doc
@@ -16,7 +16,7 @@ describe('jupyterlite', function () {
     await grist.forceDismissTips();
     await grist.addNewSection(/Custom/, /Table1/, {dismissTips: true});
     await grist.clickWidgetGallery();
-    await grist.selectCustomWidget('JupyterLite Notebook');
+    await grist.selectCustomWidget(/JupyterLite notebook/i);
     await grist.setCustomWidgetAccess('read table');  // required
 
     // Wait for a blank notebook to load in the widget
